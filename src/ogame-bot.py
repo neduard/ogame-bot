@@ -63,9 +63,13 @@ class ogameDB:
 			for res in range(3):
 				current_res += row_report[res + 1] + int(prod[res] * hours_passed)
 				weighted_res += (row_report[res + 1] + int(prod[res] * hours_passed)) * (res + 1)
-			rentability.append((prod[3], round(float(weighted_res) / self.get_distance(prod[3], prod[4]), 2), current_res/50000.0))
-		for coord, rent, ships in sorted(rentability, key=lambda y: y[1], reverse = True):
-			print coord, rent, ships;
+			rentability.append((prod[3],\
+							    round(float(weighted_res) / self.get_distance(prod[3], prod[4]), 2),\
+							    round(float(current_res)  / self.get_distance(prod[3], prod[4]), 2),\
+							    round(current_res/50000.0, 2)))
+		print 'Coordonates\tWeighted score\tPlain Score\tNr of cargos'
+		for coord, wr, pr, ships in sorted(rentability, key=lambda y: y[1], reverse = True):
+			print str(coord).ljust(15), str(wr).ljust(15), str(pr).ljust(15), str(ships)
 
 def parse_report(report):
 	s = re.search('Resources at .* \[(.*)\] \(.*\) on (.*)', report[0])

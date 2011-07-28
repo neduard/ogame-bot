@@ -59,9 +59,11 @@ class ogameDB:
 			prod = [ i for i in self.cursor.fetchone() ]
 			hours_passed = ((datetime.datetime.now() - datetime.timedelta(0,0,0,0,0,2)) - row_report[0]).seconds / 3600.0;
 			current_res = 0
+			weighted_res = 0
 			for res in range(3):
 				current_res += row_report[res + 1] + int(prod[res] * hours_passed)
-			rentability.append((prod[3], round(float(current_res) / self.get_distance(prod[3], prod[4]), 2), current_res/50000.0))
+				weighted_res += (row_report[res + 1] + int(prod[res] * hours_passed)) * (res + 1)
+			rentability.append((prod[3], round(float(weighted_res) / self.get_distance(prod[3], prod[4]), 2), current_res/50000.0))
 		for coord, rent, ships in sorted(rentability, key=lambda y: y[1], reverse = True):
 			print coord, rent, ships;
 

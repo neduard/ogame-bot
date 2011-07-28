@@ -39,6 +39,19 @@ class ogameDB:
 			self.addPlanet(coord);
 		self.cursor.execute(dbquery)
 	
+	def addCombatReport(self, coord, datetime, metal, crystal, deuterium):
+		self.cursor.execute('select planet_id from planet where coord="%s"' % coord)
+		m0, c0, d0 = self.get_current_resources(int(self.cursor.fetchone()[0]))
+		if (not m): return None
+		if (m0 - metal < 0 or c0 - crystal < 0 or d0 - deuterium < 0):
+			print 'More bounty than there was on planet? This is bad.'
+			return None
+		print datetime
+		dbquery = 'insert into report values (\
+				   null, (select PLANET_ID from planet where coord="{}"),\
+				   str_to_date("{}", "%d.%m.%Y %H:%i:%s"), {}, {}, {});'.format(coord, datetime, m0 - metal, c0 - crystal, d0 - deuterium)
+		self.cursor.execute(dbquery)
+	
 	def get_distance(self, p1, p2):
 		p1 = [int(i) for i in p1.split(':')]
 		p2 = [int(i) for i in p2.split(':')]
@@ -46,27 +59,32 @@ class ogameDB:
 		elif p1[1] != p2[1]: return 2700 + abs(p1[1] - p2[1]) * 95
 		else: return 1000 + abs(p1[2] - p2[2])
 	
+	def get_current_resources(self, id):
+		if self.cursor.execute('select date, metal, crystal, deuterium from report where planet_id=%d order by date desc;' % id) == 0:
+			print 'Can not calculate current resources for planet %d' % id
+			return None, None, None
+		report_row = [ field for field in self.cursor.fetchone() ]
+		hours_passed = ((datetime.datetime.now() - datetime.timedelta(0,0,0,0,0,2)) - report_row[0]).seconds / 3600.0;
+		self.cursor.execute('select m_prod, c_prod, d_prod from planet where planet_id=%d' % id)
+		production = [ int(prod) for prod in self.cursor.fetchone() ]
+		resources =  [ int(res) for res in report_row[1:] ]
+		cres = []
+		for res_type in range(3):
+			cres.append(resources[res_type] + int(production[res_type] * hours_passed))
+		return (cres[0], cres[1], cres[2])
+	
 	def getRentability(self):
 		self.cursor.execute('select planet_id from planet where m_prod is not null;')
 		planet_list = [ id for id, in bot.cursor.fetchall() ]
 		rentability = []
 		for id in planet_list:
-			if self.cursor.execute('select date, metal, crystal, deuterium from report where planet_id={} order by date desc;'.format(id)) == 0:
-				print 'No report for planet {}. Skipping...'.format(id)
-				continue
-			row_report = [ i for i in self.cursor.fetchone() ]
-			self.cursor.execute('select m_prod, c_prod, d_prod, coord, home_coord from planet where planet_id={}'.format(id))
-			prod = [ i for i in self.cursor.fetchone() ]
-			hours_passed = ((datetime.datetime.now() - datetime.timedelta(0,0,0,0,0,2)) - row_report[0]).seconds / 3600.0;
-			current_res = 0
-			weighted_res = 0
-			for res in range(3):
-				current_res += row_report[res + 1] + int(prod[res] * hours_passed)
-				weighted_res += (row_report[res + 1] + int(prod[res] * hours_passed)) * (res + 1)
-			rentability.append((prod[3],\
-							    round(float(weighted_res) / self.get_distance(prod[3], prod[4]), 2),\
-							    round(float(current_res)  / self.get_distance(prod[3], prod[4]), 2),\
-							    round(current_res/50000.0, 2)))
+			self.cursor.execute('select coord, home_coord from planet where planet_id={}'.format(id))
+			p1, p2 = [ i for i in self.cursor.fetchone() ]
+			m, c, d = self.get_current_resources(id)
+			if (not m):
+				continue;
+			dist = float(self.get_distance(p1, p2))
+			rentability.append((p1, round((m + 2*c + 3*d) / dist, 2), round((m + c + d) / dist, 2), round((m + c + d)/50000.0, 2)))
 		print 'Coordonates\tWeighted score\tPlain Score\tNr of cargos'
 		for coord, wr, pr, ships in sorted(rentability, key=lambda y: y[1], reverse = True):
 			print str(coord).ljust(15), str(wr).ljust(15), str(pr).ljust(15), str(ships)
@@ -81,7 +99,14 @@ def parse_report(report):
 	s = re.search("Deuterium:[\t ]*([0-9]+\.*[0-9]+).*", report[2])
 	deuterium = s.group(1)
 	return coord, "2011-"+date, metal.replace('.', ''), crystal.replace('.', ''), deuterium.replace('.', '')
-	
+
+def parse_battle(report):
+	s = re.match('Combat at .* \[(.*)\] \((.*)\)', report[0]);
+	coord, date = s.group(1), s.group(2)
+	s = re.match('([0-9]*.*[0-9]*) Metal, ([0-9]*.*[0-9]*) Crystal and ([0-9]*.*[0-9]*) Deuterium.', report[1])
+	metal, crystal, deuterium = s.group(1), s.group(2), s.group(3)
+	return coord, date, metal.replace('.', ''), crystal.replace('.', ''), deuterium.replace('.', '')
+
 bot = ogameDB()
 
 def calculate_production(bot, coord_mask = None, check = False):
@@ -121,10 +146,16 @@ while True:
 	command = raw_input(">");
 	if re.match('Resources at .*', command):
 		report = [command, raw_input(), raw_input()]
-		print "Processing report..."
+		print "Processing espionaje report..."
 		c, d, m, cr, de = parse_report(report)
 		bot.addReport(c, d, m, cr, de)
 	
+	elif re.match('Combat at .*', command):
+		report = [command, raw_input()]
+		print "Processing combat report..."
+		c, d, m, cr, de = parse_battle(report)
+		bot.addCombatReport(c, d, int(m), int(cr), int(de))
+		
 	elif re.match('cprod', command):
 		coord = re.match('cprod (-c ?)?(.*)', command)
 		if (coord): coord = coord.group(2)
@@ -136,6 +167,9 @@ while True:
 	elif re.match('(quit|q)\Z', command):
 		print "Exiting..."
 		break
+	
+	else:
+		print "Command not found. Only two command so far are cprod [-c] [coord_mask] and rent"
 	
 
 bot.close();

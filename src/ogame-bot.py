@@ -26,31 +26,58 @@ class ogameDB:
 		self.cursor.close()
 		self.conn.close()
 		
-	def addPlanet(self, coord, home_planet = "2:109:10"):
-		self.cursor.execute('insert into planet (coord, home_coord) value ("{}", "{}");'. format(coord, home_planet))
+	def dbQuery(self, query, nrOfRows = -1):
+		if not self.cursor.execute(query):
+			if nrOfRows:     return None
+			else:            return []
+		
+		if   not nrOfRows:   return []
+		elif nrOfRows == 1:  return [self.cursor.fetchone()]
+		elif nrOfRows == -1: return [ row for row in self.cursor.fetchall() ]
+		elif nrOfRows > 0:   return [ row for row in self.cursor.fetchall() ][:nrOfRows]
+		else:
+			print "Invalid number of rows to return %d" % nrOfRows
+			return None
 	
-	def addReport(self, coord, datetime, metal, crystal, deuterium):
+	def addPlanet(self, coord, home_planet = None):
+		if not home_planet:
+			if coord[0] == "2": home_planet = "2:109:10"
+			else: home_planet = "1:381:6"
+		dbquery = 'insert into planet (coord, home_coord) value ("%s", "%s");' % (coord, home_planet)
+		self.dbQuery(dbquery)
+	
+	# rep is tuple (coord, datetime, metal, crystal, deuterium)
+	def addReport(self, rep):
 		dbquery = 'insert into report values (\
-				  null, (select PLANET_ID from planet where coord="{}"),\
-				  "{}", {}, {}, {});'.format(coord, datetime, metal, crystal, deuterium)
-		if self.cursor.execute('select PLANET_ID from planet where coord="'+coord+'";') == 0:
-			print "No planet with coordonates " + coord + " in database"
+				  null, (select PLANET_ID from planet where coord="%s"),\
+				  "%s", %s, %s, %s);'% rep;
+		coord = rep[0];
+		if self.cursor.execute('select PLANET_ID from planet where coord="%s";' % coord) == 0:
+			print "No planet with coordonates %s in database" % coord
 			print "Adding automatically..."
 			self.addPlanet(coord);
-		self.cursor.execute(dbquery)
+		self.dbQuery(dbquery)
 	
 	def addCombatReport(self, coord, datetime, metal, crystal, deuterium):
-		self.cursor.execute('select planet_id from planet where coord="%s"' % coord)
-		m0, c0, d0 = self.get_current_resources(int(self.cursor.fetchone()[0]))
-		if (not m): return None
+		row = self.dbQuery('select planet_id from planet where coord="%s"' % coord, 1)
+		m0, c0, d0 = self.get_current_resources(int(row[0][0]))
+		if (not m0):
+			return None
 		if (m0 - metal < 0 or c0 - crystal < 0 or d0 - deuterium < 0):
 			print 'More bounty than there was on planet? This is bad.'
 			return None
-		print datetime
 		dbquery = 'insert into report values (\
 				   null, (select PLANET_ID from planet where coord="{}"),\
 				   str_to_date("{}", "%d.%m.%Y %H:%i:%s"), {}, {}, {});'.format(coord, datetime, m0 - metal, c0 - crystal, d0 - deuterium)
 		self.cursor.execute(dbquery)
+	
+	def get_planet_list(self):
+		bot.cursor.execute('select planet_id from planet order by coord;');
+		return [ id for id, in bot.cursor.fetchall() ]
+	
+	def get_planet_coord(self, id):
+		self.cursor.execute('select coord from planet where planet_id={}'.format(id))
+		return self.cursor.fetchone()[0]
 	
 	def get_distance(self, p1, p2):
 		p1 = [int(i) for i in p1.split(':')]
@@ -61,11 +88,13 @@ class ogameDB:
 	
 	def get_current_resources(self, id):
 		if self.cursor.execute('select date, metal, crystal, deuterium from report where planet_id=%d order by date desc;' % id) == 0:
-			print 'Can not calculate current resources for planet %d' % id
+			print 'Can not calculate current resources for planet %s' % self.get_planet_coord(id)
 			return None, None, None
 		report_row = [ field for field in self.cursor.fetchone() ]
 		hours_passed = ((datetime.datetime.now() - datetime.timedelta(0,0,0,0,0,2)) - report_row[0]).seconds / 3600.0;
-		self.cursor.execute('select m_prod, c_prod, d_prod from planet where planet_id=%d' % id)
+		if self.cursor.execute('select m_prod, c_prod, d_prod from planet where planet_id=%d and m_prod is not null' % id) == 0:
+			print "We don't know the production for planet %s" % self.get_planet_coord(id)
+			return None, None, None 
 		production = [ int(prod) for prod in self.cursor.fetchone() ]
 		resources =  [ int(res) for res in report_row[1:] ]
 		cres = []
@@ -98,7 +127,7 @@ def parse_report(report):
 	crystal = s.group(2)
 	s = re.search("Deuterium:[\t ]*([0-9]+\.*[0-9]+).*", report[2])
 	deuterium = s.group(1)
-	return coord, "2011-"+date, metal.replace('.', ''), crystal.replace('.', ''), deuterium.replace('.', '')
+	return (coord, "2011-"+date, metal.replace('.', ''), crystal.replace('.', ''), deuterium.replace('.', ''))
 
 def parse_battle(report):
 	s = re.match('Combat at .* \[(.*)\] \((.*)\)', report[0]);
@@ -127,16 +156,16 @@ def calculate_production(bot, coord_mask = None, check = False):
 		# check delta production, if it's too big raise an error 
 		if check:
 			bot.cursor.execute('select m_prod, c_prod, d_prod from planet where planet_id = {};'.format(id))
-			r0 = [i for i in bot.cursor.fetchone()]
+			r0 = [int(i) for i in bot.cursor.fetchone()]
 			res = {0: 'metal', 1: 'crystal', 2: 'deuterium'}
 			for i in range(3):
 				if r[i] < 0:
-					print 'Invalid production for planet {}'.format(id)
+					print 'Invalid production for planet {}'.format(bot.get_planet_coord(id))
 					print 'Leaving original as is'
 					r = r0
 					break
 				if abs(r0[i] - r[i]) / float(max(r0[i], r[i])) > 1.0/100.0:
-					print 'Warning! Too big a difference in production for resourse {} on planet {}'.format(res[i], id)
+					print 'Warning! Too big a difference in production for resourse {} on planet {}'.format(res[i], bot.get_planet_coord(id))
 					print 'Original was {}, new production is {}. Leaving original as is.'.format(r0[i], r[i])
 					r[i] = r0[i]
 		bot.cursor.execute('update planet set m_prod={}, c_prod={}, d_prod={} where planet_id = {};'.format(r[0], r[1], r[2], id))
@@ -147,8 +176,7 @@ while True:
 	if re.match('Resources at .*', command):
 		report = [command, raw_input(), raw_input()]
 		print "Processing espionaje report..."
-		c, d, m, cr, de = parse_report(report)
-		bot.addReport(c, d, m, cr, de)
+		bot.addReport(parse_report(report))
 	
 	elif re.match('Combat at .*', command):
 		report = [command, raw_input()]
@@ -163,6 +191,12 @@ while True:
 		
 	elif re.match('rent', command):
 		bot.getRentability()
+		
+	elif re.match('gres', command):
+		print 'current resources for all planets'
+		for id in bot.get_planet_list():
+			x = bot.get_current_resources(id)
+			if (x[0]): print bot.get_planet_coord(id), bot.get_current_resources(id)
 		
 	elif re.match('(quit|q)\Z', command):
 		print "Exiting..."

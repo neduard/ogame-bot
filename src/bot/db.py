@@ -31,7 +31,7 @@ class ogameDB(object):
             else:            return []
         
         if   not nrOfRows:   return []
-        elif nrOfRows == 1:  return [self.cursor.fetchone()]
+        elif nrOfRows == 1:  return [ self.cursor.fetchone() ]
         elif nrOfRows == -1: return [ row for row in self.cursor.fetchall() ]
         elif nrOfRows > 0:   return [ row for row in self.cursor.fetchall() ][:nrOfRows]
         else:

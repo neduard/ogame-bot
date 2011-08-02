@@ -7,7 +7,7 @@ Created on Jul 29, 2011
 
 import re, bot.logic, bot.parsers
 
-def mainLoop(bot):
+def mainLoop(ogbot):
     while True:
         command = raw_input(">");
         if re.match('Resources at .*', command):
@@ -23,6 +23,7 @@ def mainLoop(bot):
         elif re.match('cprod', command):
             coord = re.match('cprod (-c ?)?(.*)', command)
             if (coord): coord = coord.group(2)
+            else: coord = "%"
             ogbot.calculate_production(coord, re.search('-c', command) != None)
             
         elif re.match('rent', command):
@@ -37,11 +38,9 @@ def mainLoop(bot):
                 if (x): print "%s %d %d %d" % (ogbot.db.get_planet_coord(id) + x)
             
         elif re.match('(quit|q)\Z', command):
-            print "Exiting..."
             break
-        
         else:
-            print "Command not found. Only two command so far are cprod [-c] [coord_mask] and rent"    
+            print "Command not found. Only two command so far are cprod [-c] [coord_mask] and rent and gres"    
 
 if __name__ == '__main__':
     print 'Welcome to an ogame bot. Paste espionaje report or type quit/q to quit.'

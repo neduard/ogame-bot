@@ -78,11 +78,11 @@ class ogameDB(object):
                    (rep[:2],) + tuple([ current_res[i] - captured_res[i] for i in range(3) ])
         self.cursor.execute(dbquery)
     
-    def get_planet_list(self):
-        return [ id for id, in self.query('SELECT planet_id FROM planet ORDER BY coord;') ]
+    def get_planet_list(self, mask = "%"):
+        return [ id for id, in self.query("SELECT planet_id FROM planet WHERE coord LIKE '%s' ORDER BY coord" % mask) ]
         
     def get_planet_coord(self, id):
-        return self.query('select coord from planet where planet_id={}'.format(id), 1)[0]
+        return self.query('select coord from planet where planet_id={}'.format(id), 1)[0][0]
         
     def get_current_resources(self, id):
         if self.cursor.execute('select date, metal, crystal, deuterium from report where planet_id=%d order by date desc;' % id) == 0:

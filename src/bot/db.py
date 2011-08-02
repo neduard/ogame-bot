@@ -80,7 +80,7 @@ class ogameDB(object):
     
     def get_planet_list(self, mask = "%"):
         return [ id for id, in self.query("SELECT planet_id FROM planet WHERE coord LIKE '%s' ORDER BY coord" % mask) ]
-        
+    
     def get_planet_coord(self, id):
         return self.query('select coord from planet where planet_id={}'.format(id), 1)[0][0]
         
@@ -100,3 +100,6 @@ class ogameDB(object):
             cres.append(resources[res_type] + int(production[res_type] * hours_passed))
         return (cres[0], cres[1], cres[2])
         
+    def delete_planet(self, coord):
+        self.cursor.execute("DELETE FROM report WHERE planet_id = (SELECT planet_id FROM planet WHERE coord = '%s');" % coord)
+        self.cursor.execute("DELETE FROM planet WHERE coord = '%s'" % coord)
